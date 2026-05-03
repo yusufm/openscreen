@@ -3,6 +3,7 @@ import { FolderOpen, Languages, Save, Video } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -76,6 +77,46 @@ import {
 } from "./types";
 import VideoPlayback, { VideoPlaybackRef } from "./VideoPlayback";
 
+const AUTOSAVE_STORAGE_KEY = "openscreen_editor_recovery_draft";
+const AUTOSAVE_DELAY_MS = 750;
+
+interface RecoveryDraft {
+	savedAt: number;
+	projectPath: string | null;
+	lastSavedSnapshot: string | null;
+	project: unknown;
+}
+
+function readRecoveryDraft(): RecoveryDraft | null {
+	try {
+		const raw = localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as Partial<RecoveryDraft>;
+		if (!parsed.project || !validateProjectData(parsed.project)) {
+			localStorage.removeItem(AUTOSAVE_STORAGE_KEY);
+			return null;
+		}
+		return {
+			savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : Date.now(),
+			projectPath: typeof parsed.projectPath === "string" ? parsed.projectPath : null,
+			lastSavedSnapshot:
+				typeof parsed.lastSavedSnapshot === "string" ? parsed.lastSavedSnapshot : null,
+			project: parsed.project,
+		};
+	} catch {
+		localStorage.removeItem(AUTOSAVE_STORAGE_KEY);
+		return null;
+	}
+}
+
+function clearRecoveryDraft() {
+	try {
+		localStorage.removeItem(AUTOSAVE_STORAGE_KEY);
+	} catch {
+		// Ignore storage errors.
+	}
+}
+
 export default function VideoEditor() {
 	const {
 		state: editorState,
@@ -112,6 +153,7 @@ export default function VideoEditor() {
 	const [webcamVideoPath, setWebcamVideoPath] = useState<string | null>(null);
 	const [webcamVideoSourcePath, setWebcamVideoSourcePath] = useState<string | null>(null);
 	const [currentProjectPath, setCurrentProjectPath] = useState<string | null>(null);
+	const [recoveryDraft, setRecoveryDraft] = useState<RecoveryDraft | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [isPlaying, setIsPlaying] = useState(false);
@@ -193,7 +235,11 @@ export default function VideoEditor() {
 	}, [videoPath, videoSourcePath, webcamVideoPath, webcamVideoSourcePath]);
 
 	const applyLoadedProject = useCallback(
-		async (candidate: unknown, path?: string | null) => {
+		async (
+			candidate: unknown,
+			path?: string | null,
+			options?: { lastSavedSnapshot?: string | null },
+		) => {
 			if (!validateProjectData(candidate)) {
 				return false;
 			}
@@ -275,14 +321,13 @@ export default function VideoEditor() {
 					0,
 				) + 1;
 
-			setLastSavedSnapshot(
-				createProjectSnapshot(
-					webcamSourcePath
-						? { screenVideoPath: sourcePath, webcamVideoPath: webcamSourcePath }
-						: { screenVideoPath: sourcePath },
-					normalizedEditor,
-				),
+			const loadedSnapshot = createProjectSnapshot(
+				webcamSourcePath
+					? { screenVideoPath: sourcePath, webcamVideoPath: webcamSourcePath }
+					: { screenVideoPath: sourcePath },
+				normalizedEditor,
 			);
+			setLastSavedSnapshot(options?.lastSavedSnapshot ?? loadedSnapshot);
 			return true;
 		},
 		[pushState],
@@ -341,7 +386,85 @@ export default function VideoEditor() {
 	const hasUnsavedChanges = hasProjectUnsavedChanges(currentProjectSnapshot, lastSavedSnapshot);
 
 	useEffect(() => {
+		if (loading) return;
+		if (!currentProjectMedia || !currentProjectSnapshot || !hasUnsavedChanges) {
+			clearRecoveryDraft();
+			return;
+		}
+
+		const editorState = {
+			wallpaper,
+			shadowIntensity,
+			showBlur,
+			motionBlurAmount,
+			borderRadius,
+			padding,
+			cropRegion,
+			zoomRegions,
+			trimRegions,
+			speedRegions,
+			annotationRegions,
+			aspectRatio,
+			webcamLayoutPreset,
+			webcamMaskShape,
+			webcamSizePreset,
+			webcamPosition,
+			exportQuality,
+			exportFormat,
+			gifFrameRate,
+			gifLoop,
+			gifSizePreset,
+			cursorHighlight,
+		};
+		const draft: RecoveryDraft = {
+			savedAt: Date.now(),
+			projectPath: currentProjectPath,
+			lastSavedSnapshot,
+			project: createProjectData(currentProjectMedia, editorState),
+		};
+		const timeout = window.setTimeout(() => {
+			try {
+				localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify(draft));
+			} catch (error) {
+				console.warn("Failed to autosave recovery draft:", error);
+			}
+		}, AUTOSAVE_DELAY_MS);
+
+		return () => window.clearTimeout(timeout);
+	}, [
+		currentProjectMedia,
+		currentProjectSnapshot,
+		currentProjectPath,
+		lastSavedSnapshot,
+		hasUnsavedChanges,
+		wallpaper,
+		shadowIntensity,
+		showBlur,
+		motionBlurAmount,
+		borderRadius,
+		padding,
+		cropRegion,
+		zoomRegions,
+		trimRegions,
+		speedRegions,
+		annotationRegions,
+		aspectRatio,
+		webcamLayoutPreset,
+		webcamMaskShape,
+		webcamSizePreset,
+		webcamPosition,
+		exportQuality,
+		exportFormat,
+		gifFrameRate,
+		gifLoop,
+		gifSizePreset,
+		cursorHighlight,
+		loading,
+	]);
+
+	useEffect(() => {
 		async function loadInitialData() {
+			const pendingRecoveryDraft = readRecoveryDraft();
 			try {
 				const currentProjectResult = await window.electronAPI.loadCurrentProjectFile();
 				if (currentProjectResult.success && currentProjectResult.project) {
@@ -397,6 +520,9 @@ export default function VideoEditor() {
 			} catch (err) {
 				setError("Error loading video: " + String(err));
 			} finally {
+				if (pendingRecoveryDraft) {
+					setRecoveryDraft(pendingRecoveryDraft);
+				}
 				setLoading(false);
 			}
 		}
@@ -536,6 +662,25 @@ export default function VideoEditor() {
 		});
 		return () => cleanup();
 	}, [saveProject]);
+
+	const handleRestoreRecoveryDraft = useCallback(async () => {
+		if (!recoveryDraft) return;
+		const restored = await applyLoadedProject(recoveryDraft.project, recoveryDraft.projectPath, {
+			lastSavedSnapshot: recoveryDraft.lastSavedSnapshot,
+		});
+		if (restored) {
+			clearRecoveryDraft();
+			setRecoveryDraft(null);
+			toast.success("Recovered unsaved edits");
+		} else {
+			toast.error("Could not restore recovery draft");
+		}
+	}, [applyLoadedProject, recoveryDraft]);
+
+	const handleDiscardRecoveryDraft = useCallback(() => {
+		clearRecoveryDraft();
+		setRecoveryDraft(null);
+	}, []);
 
 	const handleSaveProject = useCallback(async () => {
 		await saveProject(false);
@@ -2093,6 +2238,31 @@ export default function VideoEditor() {
 					exportedFilePath ? () => void handleShowExportedFile(exportedFilePath) : undefined
 				}
 			/>
+			<Dialog
+				open={Boolean(recoveryDraft)}
+				onOpenChange={(open) => !open && handleDiscardRecoveryDraft()}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Restore unsaved edits?</DialogTitle>
+						<DialogDescription>
+							OpenScreen recovered unsaved editor changes from{" "}
+							{recoveryDraft
+								? new Date(recoveryDraft.savedAt).toLocaleString()
+								: "a previous session"}
+							.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button type="button" variant="secondary" onClick={handleDiscardRecoveryDraft}>
+							Discard
+						</Button>
+						<Button type="button" onClick={handleRestoreRecoveryDraft}>
+							Restore
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
