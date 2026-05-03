@@ -9,20 +9,34 @@ const ROOT = path.join(__dirname, "../..");
 const MAIN_JS = path.join(ROOT, "dist-electron/main.js");
 const TEST_VIDEO = path.join(__dirname, "../fixtures/sample.webm");
 
+async function waitForProcessExit(
+	child: ReturnType<ElectronApplication["process"]>,
+	timeoutMs: number,
+) {
+	if (child.exitCode !== null || child.killed) return;
+
+	await Promise.race([
+		new Promise<void>((resolve) => child.once("exit", () => resolve())),
+		new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+	]);
+}
+
 async function closeElectronApp(app: ElectronApplication) {
 	const child = app.process();
-	await Promise.race([
-		app.evaluate(({ app: electronApp }) => {
-			electronApp.quit();
-		}),
-		new Promise((resolve) => setTimeout(resolve, 1_000)),
-	]).catch(() => {
-		// The app may already be closing.
-	});
 
-	await Promise.race([app.close(), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+	await app
+		.evaluate(({ app: electronApp }) => {
+			electronApp.exit(0);
+		})
+		.catch(() => {
+			// The app may already be closing.
+		});
+
+	await waitForProcessExit(child, 2_000);
+
 	if (child.exitCode === null && !child.killed) {
-		child.kill();
+		child.kill("SIGKILL");
+		await waitForProcessExit(child, 2_000);
 	}
 }
 
