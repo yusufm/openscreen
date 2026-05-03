@@ -2,12 +2,29 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { type ElectronApplication, _electron as electron, expect, test } from "@playwright/test";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "../..");
 const MAIN_JS = path.join(ROOT, "dist-electron/main.js");
 const TEST_VIDEO = path.join(__dirname, "../fixtures/sample.webm");
+
+async function closeElectronApp(app: ElectronApplication) {
+	const child = app.process();
+	await Promise.race([
+		app.evaluate(({ app: electronApp }) => {
+			electronApp.quit();
+		}),
+		new Promise((resolve) => setTimeout(resolve, 1_000)),
+	]).catch(() => {
+		// The app may already be closing.
+	});
+
+	await Promise.race([app.close(), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+	if (child.exitCode === null && !child.killed) {
+		child.kill();
+	}
+}
 
 test("exports a GIF from a loaded video", async () => {
 	const outputPath = path.join(os.tmpdir(), `test-gif-export-${Date.now()}.gif`);
@@ -71,22 +88,21 @@ test("exports a GIF from a loaded video", async () => {
 		fs.mkdirSync(recordingsDir, { recursive: true });
 		fs.copyFileSync(TEST_VIDEO, testVideoInRecordings);
 
-		try {
-			await hudWindow.evaluate((videoPath: string) => {
-				window.electronAPI.setCurrentVideoPath(videoPath);
-				window.electronAPI.switchToEditor();
-			}, testVideoInRecordings);
-		} catch {
-			// Expected: switchToEditor() closes the HUD window, terminating
-			// the Playwright page context before evaluate() can resolve.
-		}
-
 		// ── 3. Switch to the editor window. This closes the HUD and opens
 		//       a new BrowserWindow with ?windowType=editor.
-		const editorWindow = await app.waitForEvent("window", {
+		const editorWindowPromise = app.waitForEvent("window", {
 			predicate: (w) => w.url().includes("windowType=editor"),
 			timeout: 15_000,
 		});
+		try {
+			await hudWindow.evaluate(async (videoPath: string) => {
+				await window.electronAPI.setCurrentVideoPath(videoPath);
+				void window.electronAPI.switchToEditor();
+			}, testVideoInRecordings);
+		} catch {
+			// Expected if switching windows tears down the HUD page context.
+		}
+		const editorWindow = await editorWindowPromise;
 
 		// WebCodecs (VideoEncoder) may not be registered in the renderer on first
 		// load of a second BrowserWindow. A single reload ensures the feature is
@@ -126,7 +142,7 @@ test("exports a GIF from a loaded video", async () => {
 		const stats = fs.statSync(outputPath);
 		expect(stats.size).toBeGreaterThan(1024); // at least 1 KB
 	} finally {
-		await app.close();
+		await closeElectronApp(app);
 		if (fs.existsSync(outputPath)) {
 			fs.unlinkSync(outputPath);
 		}

@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -835,7 +834,7 @@ export default function TimelineEditor({
 		if (totalMs === 0) return;
 		const time = Math.max(0, Math.min(currentTimeMs, totalMs));
 		if (keyframes.some((kf) => Math.abs(kf.time - time) < 1)) return;
-		setKeyframes((prev) => [...prev, { id: uuidv4(), time }]);
+		setKeyframes((prev) => [...prev, { id: crypto.randomUUID(), time }]);
 	}, [currentTimeMs, totalMs, keyframes]);
 
 	// Delete selected keyframe

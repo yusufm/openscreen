@@ -41,8 +41,23 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run i18n:check
+      - run: npm run test
       - run: npm run test:browser:install
       - run: npm run test:browser
+
+  e2e:
+    name: Electron E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build-vite
+      - run: xvfb-run -a npm run test:e2e
 
   build:
     name: Build

@@ -176,16 +176,5 @@
 	},
 	"language": {
 		"title": "Dil"
-	},
-	"audio": {
-		"title": "Ses",
-		"noiseReduction": "Gürültü Azaltma",
-		"level": "Seviye",
-		"nrLevel": {
-			"light": "Hafif",
-			"moderate": "Orta",
-			"aggressive": "Güçlü"
-		},
-		"nrDescription": "Yapay zeka destekli gürültü azaltma arka plan gürültüsünü temizler. Daha yüksek seviyeler daha agresiftir ancak ses kalitesini etkileyebilir."
 	}
 }

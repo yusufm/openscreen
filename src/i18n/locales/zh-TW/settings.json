@@ -8,13 +8,6 @@
 			"manual": "手動",
 			"auto": "自動",
 			"autoDescription": "攝影機跟隨錄製時的游標位置"
-		},
-		"speed": {
-			"title": "縮放速度",
-			"instant": "即時",
-			"fast": "快速",
-			"smooth": "平滑",
-			"lazy": "緩慢"
 		}
 	},
 	"speed": {
