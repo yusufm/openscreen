@@ -76,6 +76,89 @@ import {
 	type MotionBlurState,
 } from "./videoPlayback/zoomTransform";
 
+const REMOTE_MEDIA_URL_RE = /^(https?:|blob:|data:)/i;
+
+function fileUrlToPath(fileUrl: string): string {
+	const url = new URL(fileUrl);
+	const pathname = decodeURIComponent(url.pathname);
+
+	if (url.host && url.host !== "localhost") {
+		return `//${url.host}${pathname}`;
+	}
+
+	return pathname;
+}
+
+function getReadableMediaPath(mediaPath: string): string | null {
+	if (!mediaPath || REMOTE_MEDIA_URL_RE.test(mediaPath)) {
+		return null;
+	}
+
+	if (/^file:\/\//i.test(mediaPath)) {
+		try {
+			return fileUrlToPath(mediaPath);
+		} catch {
+			return null;
+		}
+	}
+
+	return mediaPath;
+}
+
+function getVideoMimeType(mediaPath: string): string {
+	const lowerPath = mediaPath.toLowerCase();
+	if (lowerPath.endsWith(".mp4")) return "video/mp4";
+	if (lowerPath.endsWith(".mov")) return "video/quicktime";
+	if (lowerPath.endsWith(".webm")) return "video/webm";
+	return "application/octet-stream";
+}
+
+function usePlayableMediaUrl(mediaPath?: string): string | undefined {
+	const [playableUrl, setPlayableUrl] = useState(mediaPath);
+
+	useEffect(() => {
+		if (!mediaPath) {
+			setPlayableUrl(undefined);
+			return;
+		}
+
+		const readablePath = getReadableMediaPath(mediaPath);
+		if (!readablePath || !window.electronAPI?.readBinaryFile) {
+			setPlayableUrl(mediaPath);
+			return;
+		}
+		const localPath = readablePath;
+
+		let canceled = false;
+		let objectUrl: string | null = null;
+
+		async function loadLocalMedia() {
+			const result = await window.electronAPI.readBinaryFile(localPath);
+			if (canceled) return;
+
+			if (!result.success || !result.data) {
+				setPlayableUrl(mediaPath);
+				return;
+			}
+
+			const blob = new Blob([result.data], { type: getVideoMimeType(localPath) });
+			objectUrl = URL.createObjectURL(blob);
+			setPlayableUrl(objectUrl);
+		}
+
+		void loadLocalMedia();
+
+		return () => {
+			canceled = true;
+			if (objectUrl) {
+				URL.revokeObjectURL(objectUrl);
+			}
+		};
+	}, [mediaPath]);
+
+	return playableUrl;
+}
+
 interface VideoPlaybackProps {
 	videoPath: string;
 	webcamVideoPath?: string;
@@ -250,6 +333,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		const videoReadyRafRef = useRef<number | null>(null);
 		const smoothedAutoFocusRef = useRef<ZoomFocus | null>(null);
 		const prevTargetProgressRef = useRef(0);
+		const playableVideoPath = usePlayableMediaUrl(videoPath);
+		const playableWebcamVideoPath = usePlayableMediaUrl(webcamVideoPath);
 
 		const clampFocusToStage = useCallback((focus: ZoomFocus, depth: ZoomDepth) => {
 			return clampFocusToStageUtil(focus, depth, stageSizeRef.current);
@@ -1184,7 +1269,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				setWebcamDimensions(null);
 				return;
 			}
@@ -1203,11 +1288,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			return () => {
 				webcamVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
 			};
-		}, [webcamVideoPath]);
+		}, [playableWebcamVideoPath]);
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				return;
 			}
 
@@ -1232,17 +1317,17 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			webcamVideo.play().catch(() => {
 				// Ignore webcam autoplay restoration failures.
 			});
-		}, [currentTime, isPlaying, speedRegions, webcamVideoPath]);
+		}, [currentTime, isPlaying, speedRegions, playableWebcamVideoPath]);
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				return;
 			}
 
 			webcamVideo.pause();
 			webcamVideo.currentTime = 0;
-		}, [webcamVideoPath]);
+		}, [playableWebcamVideoPath]);
 
 		useEffect(() => {
 			return () => {
@@ -1303,7 +1388,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 								: "none",
 					}}
 				/>
-				{webcamVideoPath &&
+				{playableWebcamVideoPath &&
 					(() => {
 						const clipPath = getCssClipPath(webcamLayout?.maskShape ?? "rectangle");
 						const useClipPath = !!clipPath;
@@ -1325,7 +1410,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 							>
 								<video
 									ref={webcamVideoRef}
-									src={webcamVideoPath}
+									src={playableWebcamVideoPath}
 									className={`w-full h-full object-cover ${webcamLayoutPreset === "picture-in-picture" ? "cursor-grab active:cursor-grabbing" : "pointer-events-none"}`}
 									style={{
 										borderRadius: useClipPath ? 0 : (webcamLayout?.borderRadius ?? 0),
@@ -1479,7 +1564,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				)}
 				<video
 					ref={videoRef}
-					src={videoPath}
+					src={playableVideoPath}
 					className="hidden"
 					preload="metadata"
 					playsInline
