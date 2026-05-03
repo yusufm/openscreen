@@ -13,12 +13,25 @@ async function waitForProcessExit(
 	child: ReturnType<ElectronApplication["process"]>,
 	timeoutMs: number,
 ) {
-	if (child.exitCode !== null || child.killed) return;
+	if (child.exitCode !== null) return;
 
-	await Promise.race([
-		new Promise<void>((resolve) => child.once("exit", () => resolve())),
-		new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
-	]);
+	await new Promise<void>((resolve) => {
+		let timer: ReturnType<typeof setTimeout>;
+		const cleanup = () => {
+			clearTimeout(timer);
+			child.removeListener("exit", onExit);
+		};
+		const finish = () => {
+			cleanup();
+			resolve();
+		};
+		const onExit = () => finish();
+		const onTimeout = () => finish();
+
+		timer = setTimeout(onTimeout, timeoutMs);
+		child.once("exit", onExit);
+		if (child.exitCode !== null) finish();
+	});
 }
 
 async function closeElectronApp(app: ElectronApplication) {
@@ -31,7 +44,7 @@ async function closeElectronApp(app: ElectronApplication) {
 			// App may already be closing.
 		});
 	await waitForProcessExit(child, 2_000);
-	if (child.exitCode === null && !child.killed) {
+	if (child.exitCode === null) {
 		child.kill("SIGKILL");
 		await waitForProcessExit(child, 2_000);
 	}
