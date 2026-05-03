@@ -33,6 +33,7 @@ import {
 	getNativeAspectRatioValue,
 } from "@/utils/aspectRatioUtils";
 import { AnnotationOverlay } from "./AnnotationOverlay";
+import { fromFileUrl } from "./projectPersistence";
 import {
 	type AnnotationRegion,
 	type BlurData,
@@ -78,28 +79,13 @@ import {
 
 const REMOTE_MEDIA_URL_RE = /^(https?:|blob:|data:)/i;
 
-function fileUrlToPath(fileUrl: string): string {
-	const url = new URL(fileUrl);
-	const pathname = decodeURIComponent(url.pathname);
-
-	if (url.host && url.host !== "localhost") {
-		return `//${url.host}${pathname}`;
-	}
-
-	return pathname;
-}
-
 function getReadableMediaPath(mediaPath: string): string | null {
 	if (!mediaPath || REMOTE_MEDIA_URL_RE.test(mediaPath)) {
 		return null;
 	}
 
 	if (/^file:\/\//i.test(mediaPath)) {
-		try {
-			return fileUrlToPath(mediaPath);
-		} catch {
-			return null;
-		}
+		return fromFileUrl(mediaPath);
 	}
 
 	return mediaPath;
