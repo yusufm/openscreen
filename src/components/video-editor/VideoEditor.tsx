@@ -286,6 +286,7 @@ export default function VideoEditor() {
 				webcamMaskShape: normalizedEditor.webcamMaskShape,
 				webcamSizePreset: normalizedEditor.webcamSizePreset,
 				webcamPosition: normalizedEditor.webcamPosition,
+				cursorHighlight: normalizedEditor.cursorHighlight,
 			});
 			setExportQuality(normalizedEditor.exportQuality);
 			setExportFormat(normalizedEditor.exportFormat);
@@ -352,12 +353,14 @@ export default function VideoEditor() {
 			aspectRatio,
 			webcamLayoutPreset,
 			webcamMaskShape,
+			webcamSizePreset,
 			webcamPosition,
 			exportQuality,
 			exportFormat,
 			gifFrameRate,
 			gifLoop,
 			gifSizePreset,
+			cursorHighlight,
 		});
 	}, [
 		currentProjectMedia,
@@ -375,20 +378,35 @@ export default function VideoEditor() {
 		aspectRatio,
 		webcamLayoutPreset,
 		webcamMaskShape,
+		webcamSizePreset,
 		webcamPosition,
 		exportQuality,
 		exportFormat,
 		gifFrameRate,
 		gifLoop,
 		gifSizePreset,
+		cursorHighlight,
 	]);
 
 	const hasUnsavedChanges = hasProjectUnsavedChanges(currentProjectSnapshot, lastSavedSnapshot);
 
 	useEffect(() => {
 		if (loading) return;
-		if (!currentProjectMedia || !currentProjectSnapshot || !hasUnsavedChanges) {
+		if (!currentProjectMedia || !currentProjectSnapshot) {
+			if (!recoveryDraft) {
+				clearRecoveryDraft();
+			}
+			return;
+		}
+		if (recoveryDraft && recoveryDraft.projectPath !== currentProjectPath) {
 			clearRecoveryDraft();
+			setRecoveryDraft(null);
+			return;
+		}
+		if (!hasUnsavedChanges) {
+			if (!recoveryDraft) {
+				clearRecoveryDraft();
+			}
 			return;
 		}
 
@@ -437,6 +455,7 @@ export default function VideoEditor() {
 		currentProjectPath,
 		lastSavedSnapshot,
 		hasUnsavedChanges,
+		recoveryDraft,
 		wallpaper,
 		shadowIntensity,
 		showBlur,
@@ -1857,6 +1876,35 @@ export default function VideoEditor() {
 		}
 	}, []);
 
+	const keepRecoveryDialogOpen = useCallback(() => undefined, []);
+	const recoveryDraftDialog = (
+		<Dialog open={Boolean(recoveryDraft)} onOpenChange={keepRecoveryDialogOpen}>
+			<DialogContent
+				onEscapeKeyDown={(event) => event.preventDefault()}
+				onPointerDownOutside={(event) => event.preventDefault()}
+			>
+				<DialogHeader>
+					<DialogTitle>Restore unsaved edits?</DialogTitle>
+					<DialogDescription>
+						OpenScreen recovered unsaved editor changes from{" "}
+						{recoveryDraft
+							? new Date(recoveryDraft.savedAt).toLocaleString()
+							: "a previous session"}
+						.
+					</DialogDescription>
+				</DialogHeader>
+				<DialogFooter>
+					<Button type="button" variant="secondary" onClick={handleDiscardRecoveryDraft}>
+						Discard
+					</Button>
+					<Button type="button" onClick={handleRestoreRecoveryDraft}>
+						Restore
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+
 	if (loading) {
 		return (
 			<div className="flex items-center justify-center h-screen bg-background">
@@ -1877,6 +1925,7 @@ export default function VideoEditor() {
 						{ts("project.load")}
 					</button>
 				</div>
+				{recoveryDraftDialog}
 			</div>
 		);
 	}
@@ -2238,31 +2287,7 @@ export default function VideoEditor() {
 					exportedFilePath ? () => void handleShowExportedFile(exportedFilePath) : undefined
 				}
 			/>
-			<Dialog
-				open={Boolean(recoveryDraft)}
-				onOpenChange={(open) => !open && handleDiscardRecoveryDraft()}
-			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Restore unsaved edits?</DialogTitle>
-						<DialogDescription>
-							OpenScreen recovered unsaved editor changes from{" "}
-							{recoveryDraft
-								? new Date(recoveryDraft.savedAt).toLocaleString()
-								: "a previous session"}
-							.
-						</DialogDescription>
-					</DialogHeader>
-					<DialogFooter>
-						<Button type="button" variant="secondary" onClick={handleDiscardRecoveryDraft}>
-							Discard
-						</Button>
-						<Button type="button" onClick={handleRestoreRecoveryDraft}>
-							Restore
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			{recoveryDraftDialog}
 		</div>
 	);
 }
