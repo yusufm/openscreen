@@ -13,24 +13,24 @@ async function waitForProcessExit(
 	child: ReturnType<ElectronApplication["process"]>,
 	timeoutMs: number,
 ) {
-	if (child.exitCode !== null) return;
+	if (child.exitCode !== null) return true;
 
-	await new Promise<void>((resolve) => {
+	return new Promise<boolean>((resolve) => {
 		let timer: ReturnType<typeof setTimeout>;
 		const cleanup = () => {
 			clearTimeout(timer);
 			child.removeListener("exit", onExit);
 		};
-		const finish = () => {
+		const finish = (exited: boolean) => {
 			cleanup();
-			resolve();
+			resolve(exited);
 		};
-		const onExit = () => finish();
-		const onTimeout = () => finish();
+		const onExit = () => finish(true);
+		const onTimeout = () => finish(false);
 
 		timer = setTimeout(onTimeout, timeoutMs);
 		child.once("exit", onExit);
-		if (child.exitCode !== null) finish();
+		if (child.exitCode !== null) finish(true);
 	});
 }
 
@@ -43,10 +43,15 @@ async function closeElectronApp(app: ElectronApplication) {
 		.catch(() => {
 			// App may already be closing.
 		});
-	await waitForProcessExit(child, 2_000);
+	const exited = await waitForProcessExit(child, 2_000);
 	if (child.exitCode === null) {
 		child.kill("SIGKILL");
-		await waitForProcessExit(child, 2_000);
+		const killed = await waitForProcessExit(child, 2_000);
+		if (!killed) {
+			throw new Error("Electron process did not exit after SIGKILL");
+		}
+	} else if (!exited) {
+		throw new Error("Electron process exit timed out");
 	}
 }
 
