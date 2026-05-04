@@ -38,9 +38,9 @@ test("exports an MP4 from a loaded video", async () => {
 		testVideoInRecordings = await copyFixtureToRecordings(app, TEST_VIDEO, "test-sample-mp4.webm");
 
 		try {
-			await hudWindow.evaluate((videoPath: string) => {
-				window.electronAPI.setCurrentVideoPath(videoPath);
-				window.electronAPI.switchToEditor();
+			await hudWindow.evaluate(async (videoPath: string) => {
+				await window.electronAPI.setCurrentVideoPath(videoPath);
+				await window.electronAPI.switchToEditor();
 			}, testVideoInRecordings);
 		} catch {
 			// Expected: switchToEditor closes the HUD window.

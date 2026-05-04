@@ -63,5 +63,8 @@ export async function readCapturedExportBuffer(app: ElectronApplication) {
 	const base64 = await app.evaluate(
 		() => (globalThis as Record<string, unknown>)["__testExportData"] as string,
 	);
+	if (typeof base64 !== "string" || base64.length === 0) {
+		throw new Error("__testExportData was not set or is invalid");
+	}
 	return Buffer.from(base64, "base64");
 }
