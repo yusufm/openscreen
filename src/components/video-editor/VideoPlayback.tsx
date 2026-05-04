@@ -78,6 +78,7 @@ import {
 } from "./videoPlayback/zoomTransform";
 
 const REMOTE_MEDIA_URL_RE = /^(https?:|blob:|data:)/i;
+const LOCAL_MEDIA_PROTOCOL = "openscreen-media";
 
 function getReadableMediaPath(mediaPath: string): string | null {
 	if (!mediaPath || REMOTE_MEDIA_URL_RE.test(mediaPath)) {
@@ -91,16 +92,19 @@ function getReadableMediaPath(mediaPath: string): string | null {
 	return mediaPath;
 }
 
-function getVideoMimeType(mediaPath: string): string {
-	const lowerPath = mediaPath.toLowerCase();
-	if (lowerPath.endsWith(".mp4")) return "video/mp4";
-	if (lowerPath.endsWith(".mov")) return "video/quicktime";
-	if (lowerPath.endsWith(".webm")) return "video/webm";
-	return "application/octet-stream";
+function getPlayableMediaPath(mediaPath: string): string {
+	const readablePath = getReadableMediaPath(mediaPath);
+	if (!readablePath) {
+		return mediaPath;
+	}
+
+	return `${LOCAL_MEDIA_PROTOCOL}://local/${encodeURIComponent(readablePath)}`;
 }
 
 function usePlayableMediaUrl(mediaPath?: string): string | undefined {
-	const [playableUrl, setPlayableUrl] = useState(mediaPath);
+	const [playableUrl, setPlayableUrl] = useState<string | undefined>(() =>
+		mediaPath ? getPlayableMediaPath(mediaPath) : undefined,
+	);
 
 	useEffect(() => {
 		if (!mediaPath) {
@@ -108,38 +112,7 @@ function usePlayableMediaUrl(mediaPath?: string): string | undefined {
 			return;
 		}
 
-		const readablePath = getReadableMediaPath(mediaPath);
-		if (!readablePath || !window.electronAPI?.readBinaryFile) {
-			setPlayableUrl(mediaPath);
-			return;
-		}
-		const localPath = readablePath;
-
-		let canceled = false;
-		let objectUrl: string | null = null;
-
-		async function loadLocalMedia() {
-			const result = await window.electronAPI.readBinaryFile(localPath);
-			if (canceled) return;
-
-			if (!result.success || !result.data) {
-				setPlayableUrl(mediaPath);
-				return;
-			}
-
-			const blob = new Blob([result.data], { type: getVideoMimeType(localPath) });
-			objectUrl = URL.createObjectURL(blob);
-			setPlayableUrl(objectUrl);
-		}
-
-		void loadLocalMedia();
-
-		return () => {
-			canceled = true;
-			if (objectUrl) {
-				URL.revokeObjectURL(objectUrl);
-			}
-		};
+		setPlayableUrl(getPlayableMediaPath(mediaPath));
 	}, [mediaPath]);
 
 	return playableUrl;

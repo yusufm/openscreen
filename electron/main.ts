@@ -8,6 +8,7 @@ import {
 	ipcMain,
 	Menu,
 	nativeImage,
+	protocol,
 	session,
 	systemPreferences,
 	Tray,
@@ -88,6 +89,19 @@ const ALLOWED_MEDIA_PERMISSIONS = new Set([
 	"microphone",
 	"videoCapture",
 	"camera",
+]);
+const LOCAL_MEDIA_PROTOCOL = "openscreen-media";
+
+protocol.registerSchemesAsPrivileged([
+	{
+		scheme: LOCAL_MEDIA_PROTOCOL,
+		privileges: {
+			standard: true,
+			secure: true,
+			stream: true,
+			supportFetchAPI: true,
+		},
+	},
 ]);
 
 // Tray Icons

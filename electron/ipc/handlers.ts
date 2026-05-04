@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -11,6 +11,8 @@ import {
 	desktopCapturer,
 	dialog,
 	ipcMain,
+	net,
+	protocol,
 	screen,
 	shell,
 	systemPreferences,
@@ -33,6 +35,7 @@ const PROJECT_FILE_EXTENSION = "openscreen";
 const SHORTCUTS_FILE = path.join(app.getPath("userData"), "shortcuts.json");
 const RECORDING_SESSION_SUFFIX = ".session.json";
 const ALLOWED_IMPORT_VIDEO_EXTENSIONS = new Set([".webm", ".mp4", ".mov", ".avi", ".mkv"]);
+const LOCAL_MEDIA_PROTOCOL = "openscreen-media";
 
 /**
  * Paths explicitly approved by the user via file picker dialogs or project loads.
@@ -77,6 +80,41 @@ function buildDialogOptions<T extends Electron.OpenDialogOptions | Electron.Save
 
 function hasAllowedImportVideoExtension(filePath: string): boolean {
 	return ALLOWED_IMPORT_VIDEO_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+let localMediaProtocolRegistered = false;
+
+function parseLocalMediaPath(url: string): string | null {
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol !== `${LOCAL_MEDIA_PROTOCOL}:` || parsed.hostname !== "local") {
+			return null;
+		}
+		const encodedPath = parsed.pathname.replace(/^\/+/, "");
+		return encodedPath ? decodeURIComponent(encodedPath) : null;
+	} catch {
+		return null;
+	}
+}
+
+function registerLocalMediaProtocol() {
+	if (localMediaProtocolRegistered) return;
+
+	protocol.handle(LOCAL_MEDIA_PROTOCOL, async (request) => {
+		const requestedPath = parseLocalMediaPath(request.url);
+		const normalizedPath = normalizeVideoSourcePath(requestedPath);
+
+		if (
+			!normalizedPath ||
+			!isPathAllowed(normalizedPath) ||
+			!hasAllowedImportVideoExtension(normalizedPath)
+		) {
+			return new Response("Not found", { status: 404 });
+		}
+
+		return net.fetch(pathToFileURL(normalizedPath).toString());
+	});
+	localMediaProtocolRegistered = true;
 }
 
 async function approveReadableVideoPath(
@@ -486,6 +524,8 @@ export function registerIpcHandlers(
 	onRecordingStateChange?: (recording: boolean, sourceName: string) => void,
 	switchToHud?: () => void,
 ) {
+	registerLocalMediaProtocol();
+
 	const supportsWindowOpacity = process.platform !== "linux";
 	const countdownOverlayState = {
 		visible: false,
